@@ -299,6 +299,15 @@ code {
 .video-overlay.error {
   color: #ffb3b0;
 }
+.video-overlay.error strong {
+  font-size: 15px;
+  color: #ffd0ce;
+}
+.error-detail {
+  font-size: 12.5px;
+  max-width: 460px;
+  line-height: 1.5;
+}
 .spinner {
   width: 26px;
   height: 26px;

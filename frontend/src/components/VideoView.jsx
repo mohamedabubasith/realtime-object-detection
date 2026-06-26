@@ -42,6 +42,10 @@ export default function VideoView({ session, stats, live, showRoi = true }) {
 
   const count = stats?.current_count ?? 0
   const status = stats?.status || session.status
+  const failed = status === 'error' || errored
+  const errorText =
+    stats?.error ||
+    'Stream unavailable — the source may have ended or failed to open.'
   // Only overlay drawing tools when the stream is live and the session is
   // actively running (not finished / stopped / errored).
   const running = !['finished', 'stopped', 'error'].includes(status)
@@ -50,15 +54,16 @@ export default function VideoView({ session, stats, live, showRoi = true }) {
   return (
     <div className="card video-view">
       <div className="video-frame">
-        {!loaded && !errored && (
+        {!loaded && !failed && (
           <div className="video-overlay center">
             <span className="spinner" aria-hidden="true" />
-            Connecting to stream…
+            {status === 'starting' ? 'Resolving source…' : 'Connecting to stream…'}
           </div>
         )}
-        {errored && (
+        {failed && (
           <div className="video-overlay center error">
-            Stream unavailable. The source may have ended or failed to open.
+            <strong>Couldn’t start detection</strong>
+            <span className="error-detail">{errorText}</span>
           </div>
         )}
         <img

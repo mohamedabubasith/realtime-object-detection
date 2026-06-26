@@ -61,9 +61,11 @@ def resolve_stream_url(page_url: str, max_height: int = 720) -> Tuple[str, bool,
         "no_warnings": True,
         "skip_download": True,
         # Resilience against flaky networks / rate-limiting.
-        "retries": 3,
-        "extractor_retries": 3,
-        "socket_timeout": 20,
+        # Fail fast so a blocked/unreachable source surfaces an error quickly
+        # instead of leaving the UI on a spinner for minutes.
+        "retries": 1,
+        "extractor_retries": 1,
+        "socket_timeout": 15,
         "http_headers": {
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "

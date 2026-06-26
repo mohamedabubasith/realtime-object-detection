@@ -216,7 +216,12 @@ async def _mjpeg_generator(sid: str, request: Request) -> AsyncIterator[bytes]:
             break
         frame = s.get_jpeg()
         if frame is None:
-            if s.status in ("error", "finished", "stopped") and time.time() > no_frame_deadline:
+            # Terminal session that never produced a frame (e.g. the source
+            # failed to open): stop promptly so the <img> request ends and the
+            # UI shows the error instead of spinning forever.
+            if s.status in ("error", "finished", "stopped"):
+                break
+            if time.time() > no_frame_deadline:
                 break
             await asyncio.sleep(0.05)
             continue
