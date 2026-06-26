@@ -1,0 +1,21 @@
+# Keep build context small if you ever build with a local COPY context.
+# (The Hugging Face Dockerfile clones from GitHub and doesn't use this, but a
+# .dockerignore is good hygiene for any local docker build.)
+**/.venv/
+**/venv/
+**/__pycache__/
+**/*.pyc
+**/node_modules/
+**/dist/
+backend/static/
+backend/uploads/*
+!backend/uploads/.gitkeep
+backend/models/*
+!backend/models/.gitkeep
+*.onnx
+*.pt
+.git/
+.env
+**/.env
+*.log
+.DS_Store

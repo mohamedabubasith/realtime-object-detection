@@ -1,0 +1,39 @@
+# Root .gitignore — a sensible superset of the per-subproject ignores.
+# See backend/.gitignore and frontend/.gitignore for project-specific rules.
+
+# --- OS / editor / tooling cruft ---
+.DS_Store
+*.log
+.claude/
+# .vscode/   # uncomment if you don't want to share editor settings
+
+# --- Python ---
+.venv/
+venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+
+# --- Node / frontend build ---
+node_modules/
+dist/
+# Built frontend copied in for the single-port / Docker deploy
+backend/static/
+
+# --- Secrets / local config ---
+.env
+.env.local
+.env.*.local
+
+# --- Model weights & exports (downloaded/generated at runtime) ---
+*.onnx
+*.pt
+# OpenVINO exports
+*_openvino_model/
+
+# --- Runtime data: keep the dirs (via .gitkeep), ignore their contents ---
+backend/uploads/*
+!backend/uploads/.gitkeep
+backend/models/*
+!backend/models/.gitkeep

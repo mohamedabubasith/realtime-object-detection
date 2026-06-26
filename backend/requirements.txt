@@ -1,0 +1,24 @@
+# Pinned/verified 2026-06 for a CPU-only box. See README for the rationale.
+
+# --- Web framework ---
+fastapi>=0.115,<0.116
+uvicorn[standard]>=0.34,<0.35
+python-multipart>=0.0.9          # file uploads
+pydantic>=2.7,<3
+pydantic-settings>=2.3,<3
+httpx>=0.27                      # required by Starlette TestClient (smoke_test)
+
+# --- Computer vision / detection ---
+# Ultralytics handles correct letterbox preprocessing + NMS and can load
+# either a .pt model or an exported .onnx / openvino model with the same API.
+# >=8.4 is required for the default YOLO26n weights.
+ultralytics>=8.4,<9
+opencv-python-headless>=4.10,<5   # headless = no GUI libs, lighter for a server
+numpy>=1.26,<2.2                  # ultralytics/opencv compat ceiling
+
+# --- Lightweight CPU inference runtime (used when you export to ONNX) ---
+onnxruntime>=1.18,<2
+
+# --- Stream ingestion (YouTube / HLS / generic stream URLs) ---
+# yt-dlp changes constantly as sites change; keep it updated (pip install -U yt-dlp).
+yt-dlp>=2025.1.1
