@@ -124,17 +124,17 @@ export default function App() {
             )}
           </aside>
         </main>
-
-        <footer className="app-footer">
-          <span>
-            Detection is best-effort and never 100% — tune the confidence
-            threshold for your footage.
-          </span>
-          <span className="footer-model">
-            Model: <code>{config?.model_path || '…'}</code>
-          </span>
-        </footer>
       </div>
+
+      <footer className="app-footer">
+        <span>
+          Detection is best-effort and never 100% — tune the confidence
+          threshold for your footage.
+        </span>
+        <span className="footer-model">
+          Model: <code>{config?.model_path || '…'}</code>
+        </span>
+      </footer>
     </div>
   )
 }

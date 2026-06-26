@@ -15,7 +15,7 @@
 # ──────────────────────────── Stage 1: build the frontend ───────────────────
 FROM node:20-slim AS frontend
 
-RUN apt-get update && apt-get install -y --no-install-recommends git \
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 ARG REPO_URL=https://github.com/mohamedabubasith/realtime-object-detection.git
@@ -33,7 +33,7 @@ FROM python:3.11-slim AS runtime
 
 # System libraries: ffmpeg (stream/RTSP/HLS decode) + OpenCV runtime deps.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ffmpeg libgl1 libglib2.0-0 \
+        ffmpeg libgl1 libglib2.0-0 ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # Hugging Face runs the container as a non-root user (uid 1000) with a writable

@@ -55,10 +55,21 @@ def resolve_stream_url(page_url: str, max_height: int = 720) -> Tuple[str, bool,
     OpenCV/ffmpeg can read. Returns (media_url, is_live, title)."""
     import yt_dlp
 
+    cookies = os.environ.get("YTDLP_COOKIES", "").strip()
     ydl_opts = {
         "quiet": True,
         "no_warnings": True,
         "skip_download": True,
+        # Resilience against flaky networks / rate-limiting.
+        "retries": 3,
+        "extractor_retries": 3,
+        "socket_timeout": 20,
+        "http_headers": {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            )
+        },
         # IMPORTANT: pick a SINGLE already-muxed (progressive) stream. OpenCV /
         # ffmpeg via VideoCapture cannot mux a separate video+audio pair, so we
         # must never select "bestvideo+bestaudio". The bare "best" selector and
@@ -70,8 +81,23 @@ def resolve_stream_url(page_url: str, max_height: int = 720) -> Tuple[str, bool,
             f"best[height<=?{max_height}]/best"
         ),
     }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(page_url, download=False)
+    # Optional escape hatch: a Netscape-format cookies.txt lets YouTube work from
+    # servers whose datacenter IP it would otherwise block. Set the env var
+    # YTDLP_COOKIES=/path/to/cookies.txt.
+    if cookies and Path(cookies).exists():
+        ydl_opts["cookiefile"] = cookies
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(page_url, download=False)
+    except Exception as e:
+        raise ValueError(
+            "Could not load this URL via yt-dlp. YouTube (and some sites) block "
+            "requests from cloud / datacenter servers such as Hugging Face "
+            "Spaces. Try uploading the video file, an RTSP camera, or a direct "
+            ".m3u8 / .mp4 stream URL instead — or provide cookies via "
+            f"YTDLP_COOKIES. (details: {type(e).__name__}: {str(e)[:140]})"
+        ) from e
 
     if info is None:
         raise ValueError("yt-dlp could not resolve the URL")
