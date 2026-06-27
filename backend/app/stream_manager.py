@@ -132,6 +132,7 @@ class Session:
         self.detector = detector
         self.settings = settings
         self.created_at = time.time()
+        self._last_active = time.time()  # updated each time MJPEG client pulls a frame
 
         self.conf_threshold = conf_threshold or settings.conf_threshold
         self.target_classes = target_classes or list(settings.target_classes)
@@ -509,8 +510,14 @@ class Session:
     # ------------------------------------------------------------------ reads
     def get_jpeg(self) -> Optional[bytes]:
         """Return the most recently encoded annotated JPEG frame, if any."""
+        self._last_active = time.time()
         with self._lock:
             return self._latest_jpeg
+
+    @property
+    def is_idle(self) -> bool:
+        """True if no MJPEG client has pulled a frame in the last 60 seconds."""
+        return (time.time() - self._last_active) > 60
 
     def stats(self) -> Dict[str, Any]:
         """Return a thread-safe snapshot of the live stats (frontend payload)."""
@@ -613,22 +620,56 @@ class SessionManager:
                label: Optional[str] = None, loop: bool = False) -> Session:
         """Create and start a new session.
 
-        Raises ``RuntimeError`` if the active-session cap is reached.
+        Evicts dead sessions first; if still at the active cap, auto-stops the
+        oldest running session rather than blocking the user with an error.
         """
+        to_stop = None
         with self._lock:
+            # Evict terminal sessions (error/finished/stopped) to free slots.
+            for dead_id in [k for k, s in self._sessions.items()
+                            if s.status in ("error", "finished", "stopped")]:
+                self._sessions.pop(dead_id)
+            # Evict zombie sessions: running but no MJPEG client for > 60s.
+            # This cleans up sessions left behind by browser refreshes/tab closes.
+            zombies = [s for s in self._sessions.values()
+                       if s.status in ("starting", "running") and s.is_idle]
+            for z in zombies:
+                logger.info("Evicting idle zombie session %s (no client for >60s)", z.id)
+                self._sessions.pop(z.id, None)
             active = [s for s in self._sessions.values()
                       if s.status in ("starting", "running")]
             if len(active) >= self.settings.max_sessions:
-                raise RuntimeError(
-                    f"Max {self.settings.max_sessions} active session(s) reached. "
-                    "Stop one before starting another.")
+                # Auto-stop the oldest active session to make room silently.
+                to_stop = min(active, key=lambda s: s.created_at)
+                self._sessions.pop(to_stop.id, None)
             sid = uuid.uuid4().hex[:12]
             session = Session(sid, source_type, source, self.detector,
                               self.settings, conf_threshold, target_classes,
                               label, loop)
             self._sessions[sid] = session
+        for z in zombies:
+            z.stop()  # signal outside the lock to avoid deadlock
+        if to_stop is not None:
+            to_stop.stop()
+            logger.info("Auto-stopped oldest session %s to make room for %s",
+                        to_stop.id, sid)
         session.start()
         return session
+
+    def evict_idle(self) -> int:
+        """Stop and remove sessions with no active MJPEG client. Returns count evicted."""
+        evicted = 0
+        with self._lock:
+            for sid, s in list(self._sessions.items()):
+                if s.status in ("error", "finished", "stopped"):
+                    _ = self._sessions.pop(sid)
+                    evicted += 1
+                elif s.is_idle:
+                    _ = self._sessions.pop(sid)
+                    s.stop()
+                    logger.info("Background evicted idle session %s", sid)
+                    evicted += 1
+        return evicted
 
     def get(self, sid: str) -> Optional[Session]:
         """Return a session by id, or None if it doesn't exist."""

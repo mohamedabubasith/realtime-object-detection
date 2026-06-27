@@ -44,6 +44,17 @@ ALLOWED_VIDEO_EXT = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v", ".mpg",
 state: Dict[str, Any] = {}
 
 
+async def _idle_cleanup_loop() -> None:
+    """Background task: evict zombie/dead sessions every 30 s."""
+    while True:
+        await asyncio.sleep(30)
+        mgr = state.get("manager")
+        if mgr:
+            n = mgr.evict_idle()
+            if n:
+                logger.info("Idle cleanup evicted %d session(s)", n)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Load the detector once at startup and tear down active sessions on exit."""
@@ -60,7 +71,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     state["settings"] = settings
     state["detector"] = detector
     state["manager"] = SessionManager(detector, settings)
+    cleanup_task = asyncio.create_task(_idle_cleanup_loop())
     yield
+    cleanup_task.cancel()
     state["manager"].shutdown()
 
 

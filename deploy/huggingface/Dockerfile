@@ -70,7 +70,11 @@ ENV YOLO_CONFIG_DIR=/home/user/app/backend/.ultralytics \
     IMGSZ=320 \
     HOST=0.0.0.0 \
     PORT=7860 \
-    MAX_SESSIONS=1
+    MAX_SESSIONS=3 \
+    PROCESS_EVERY_N=4 \
+    MAX_FRAME_WIDTH=640 \
+    STREAM_FPS=12 \
+    JPEG_QUALITY=65
 
 # Pre-export the ONNX model at build time so the first request isn't slow.
 # Best-effort: if it fails, the app falls back to yolo26n.pt at runtime.
