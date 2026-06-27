@@ -21,4 +21,6 @@ onnxruntime>=1.18,<2
 
 # --- Stream ingestion (YouTube / HLS / generic stream URLs) ---
 # yt-dlp changes constantly as sites change; keep it updated (pip install -U yt-dlp).
-yt-dlp>=2025.1.1
+yt-dlp>=2025.5.22                 # 2025.05.22+ required for PO Token Provider Framework
+curl-cffi>=0.7                    # browser TLS fingerprint (stops YouTube SSL-reset on datacenter IPs)
+bgutil-ytdlp-pot-provider>=1.3.1  # YouTube PO token provider; needs Node.js >= 20 for script mode

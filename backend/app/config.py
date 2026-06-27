@@ -99,11 +99,12 @@ class Settings(BaseSettings):
     def resolved_model_path(self) -> str:
         """Resolve the model to load, with a graceful fallback chain:
 
-        1. An absolute path that exists.
-        2. models/<name> if present (e.g. an exported models/yolo26n.onnx).
-        3. If an .onnx was requested but isn't there yet, fall back to its .pt
-           twin (models/<stem>.pt, else the bare downloadable <stem>.pt).
-        4. Otherwise the bare name (Ultralytics auto-downloads known weights).
+        absolute path -> models/<name> -> models/<stem>_openvino_model ->
+        models/<stem>.onnx -> models/<stem>.pt -> downloadable <stem>.pt.
+
+        This lets MODEL_PATH point at a fast format (an OpenVINO directory or an
+        ONNX file) while still running if only the .pt is present — e.g. if an
+        export failed at build time.
         """
         import logging
         log = logging.getLogger("config")
@@ -116,18 +117,27 @@ class Settings(BaseSettings):
         if candidate.exists():
             return str(candidate)
 
-        if p.suffix == ".onnx":
-            pt_local = self.model_dir / (p.stem + ".pt")
-            if pt_local.exists():
-                log.warning("%s not found; using %s. Run scripts/export_model.py "
-                            "for faster ONNX inference.", p.name, pt_local.name)
-                return str(pt_local)
-            log.warning("%s not found; falling back to downloadable %s.pt "
-                        "(slower). Run scripts/export_model.py to speed up.",
-                        p.name, p.stem)
-            return p.stem + ".pt"
+        # Derive the base model name (strip the OpenVINO suffix or file ext).
+        name = p.name
+        if name.endswith("_openvino_model"):
+            stem = name[: -len("_openvino_model")]
+        else:
+            stem = p.stem
 
-        return self.model_path
+        for cand in (
+            self.model_dir / f"{stem}_openvino_model",
+            self.model_dir / f"{stem}.onnx",
+            self.model_dir / f"{stem}.pt",
+        ):
+            if cand.exists():
+                if cand.name != name:
+                    log.warning("%s not found; using %s instead (run "
+                                "scripts/export_model.py to regenerate).",
+                                name, cand.name)
+                return str(cand)
+
+        log.warning("%s not found; downloading %s.pt (slower).", name, stem)
+        return f"{stem}.pt"
 
 
 @lru_cache

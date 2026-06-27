@@ -28,6 +28,7 @@ import numpy as np
 
 logger = logging.getLogger("sources")
 
+
 # FFmpeg options applied to every ffmpeg-backed VideoCapture. Must be set before
 # the capture is constructed.
 #   rtsp_transport;tcp  -> RTSP over TCP (far more reliable than default UDP)
@@ -52,53 +53,67 @@ class ResolvedSource:
 
 def resolve_stream_url(page_url: str, max_height: int = 720) -> Tuple[str, bool, str]:
     """Use yt-dlp to turn a YouTube/stream page URL into a direct media URL that
-    OpenCV/ffmpeg can read. Returns (media_url, is_live, title)."""
+    OpenCV/ffmpeg can read. Returns (media_url, is_live, title).
+
+    Datacenter-friendly fixes applied automatically:
+    - TLS impersonation via curl_cffi (stops SSL-reset from YouTube on cloud IPs)
+    - player_client avoids the `web` client whose _download_initial_data path
+      triggers the SSL UNEXPECTED_EOF error on datacenter IPs
+    - bgutil PO-token provider (if installed) signs GVS format URLs to avoid 403s
+    """
     import yt_dlp
 
     cookies = os.environ.get("YTDLP_COOKIES", "").strip()
-    ydl_opts = {
+    proxy = os.environ.get("YTDLP_PROXY", "").strip()
+
+    ydl_opts: dict[str, object] = {
         "quiet": True,
         "no_warnings": True,
         "skip_download": True,
-        # Resilience against flaky networks / rate-limiting.
-        # Fail fast so a blocked/unreachable source surfaces an error quickly
-        # instead of leaving the UI on a spinner for minutes.
         "retries": 1,
         "extractor_retries": 1,
         "socket_timeout": 15,
-        "http_headers": {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-            )
-        },
-        # IMPORTANT: pick a SINGLE already-muxed (progressive) stream. OpenCV /
-        # ffmpeg via VideoCapture cannot mux a separate video+audio pair, so we
-        # must never select "bestvideo+bestaudio". The bare "best" selector and
-        # the filters below all resolve to one playable URL. We also cap the
-        # height so a weak CPU isn't decoding 4K, and prefer HTTP progressive.
+        # IMPORTANT: single already-muxed stream. OpenCV/ffmpeg VideoCapture
+        # cannot mux separate video+audio, so never use bestvideo+bestaudio.
         "format": (
             f"best[height<=?{max_height}][protocol^=http][ext=mp4]/"
             f"best[height<=?{max_height}][protocol^=http]/"
             f"best[height<=?{max_height}]/best"
         ),
+        # Avoid the `web` client: its _download_initial_data path is the one
+        # that triggers SSL UNEXPECTED_EOF resets from datacenter IPs.
+        # `tv` yields HLS (no PO token needed), `mweb` uses the mobile API.
+        # `default` keeps the 2026 yt-dlp default set (android_vr, web_safari).
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["default", "mweb", "tv"],
+            }
+        },
     }
-    # Optional escape hatch: a Netscape-format cookies.txt lets YouTube work from
-    # servers whose datacenter IP it would otherwise block. Set the env var
-    # YTDLP_COOKIES=/path/to/cookies.txt.
+
+    # TLS impersonation: makes yt-dlp look like a real browser at the TLS layer,
+    # which is what stops YouTube from RST-ing the handshake on cloud/HF IPs.
+    # Requires curl_cffi (installed via `pip install "yt-dlp[default,curl-cffi]"`).
+    try:
+        from yt_dlp.networking.impersonate import ImpersonateTarget
+        import curl_cffi  # noqa: F401 — just checking it is installed
+        ydl_opts["impersonate"] = ImpersonateTarget("chrome")
+        logger.debug("yt-dlp TLS impersonation enabled (chrome)")
+    except ImportError:
+        logger.debug("curl_cffi not installed; TLS impersonation disabled")
+
     if cookies and Path(cookies).exists():
         ydl_opts["cookiefile"] = cookies
+    if proxy:
+        ydl_opts["proxy"] = proxy
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(page_url, download=False)
     except Exception as e:
         raise ValueError(
-            "Could not load this URL via yt-dlp. YouTube (and some sites) block "
-            "requests from cloud / datacenter servers such as Hugging Face "
-            "Spaces. Try uploading the video file, an RTSP camera, or a direct "
-            ".m3u8 / .mp4 stream URL instead — or provide cookies via "
-            f"YTDLP_COOKIES. (details: {type(e).__name__}: {str(e)[:140]})"
+            "Could not load this URL via yt-dlp. "
+            f"(details: {type(e).__name__}: {str(e)[:200]})"
         ) from e
 
     if info is None:

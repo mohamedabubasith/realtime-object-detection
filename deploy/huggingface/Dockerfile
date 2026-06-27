@@ -32,8 +32,12 @@ RUN npm ci && npm run build          # -> /src/frontend/dist
 FROM python:3.11-slim AS runtime
 
 # System libraries: ffmpeg (stream/RTSP/HLS decode) + OpenCV runtime deps.
+# Node.js 20 is required by bgutil-ytdlp-pot-provider (script mode) which
+# generates YouTube PO tokens so yt-dlp can download from datacenter IPs.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ffmpeg libgl1 libglib2.0-0 ca-certificates \
+        ffmpeg libgl1 libglib2.0-0 ca-certificates curl gnupg \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 # Hugging Face runs the container as a non-root user (uid 1000) with a writable
@@ -54,23 +58,29 @@ COPY --from=frontend --chown=user:user /src/frontend/dist ./backend/static
 # build (ultralytics depends on torch). Then the rest of the backend deps.
 RUN pip install --user torch torchvision --index-url https://download.pytorch.org/whl/cpu \
     && pip install --user -r backend/requirements.txt \
-    && pip install --user onnx onnxslim          # needed only for the export below
+    && pip install --user onnx onnxslim openvino nncf \
+    && pip install --user "yt-dlp[default,curl-cffi]" bgutil-ytdlp-pot-provider
 
 WORKDIR /home/user/app/backend
 
 # Runtime config. Caches/config must live somewhere writable by uid 1000.
 ENV YOLO_CONFIG_DIR=/home/user/app/backend/.ultralytics \
     MPLCONFIGDIR=/home/user/app/backend/.mpl \
-    MODEL_PATH=models/yolo26n.onnx \
-    IMGSZ=416 \
+    MODEL_PATH=models/yolo26n_openvino_model \
+    IMGSZ=320 \
     HOST=0.0.0.0 \
     PORT=7860 \
     MAX_SESSIONS=1
 
 # Pre-export the ONNX model at build time so the first request isn't slow.
 # Best-effort: if it fails, the app falls back to yolo26n.pt at runtime.
-RUN python scripts/export_model.py --format onnx --imgsz 416 \
-    || echo "ONNX export skipped at build; will use yolo26n.pt at runtime."
+# Export an INT8 OpenVINO model (fastest on HF's Intel CPU) at imgsz 320.
+# Fall back to FP32 OpenVINO, then ONNX, then the plain .pt at runtime — the
+# backend's resolved_model_path() picks whichever exists.
+RUN python scripts/export_model.py --format openvino --imgsz 320 --int8 \
+    || python scripts/export_model.py --format openvino --imgsz 320 \
+    || python scripts/export_model.py --format onnx --imgsz 320 \
+    || echo "Model export failed at build; will download yolo26n.pt at runtime."
 
 EXPOSE 7860
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "7860"]

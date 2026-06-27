@@ -60,15 +60,23 @@ def main() -> None:
         return
 
     print(f"Exporting to {args.format} (imgsz={args.imgsz}, int8={args.int8})...")
-    # Static shape (dynamic=False) — on CPU this is ~3x faster than a dynamic
-    # ONNX. The model is locked to this imgsz; the backend auto-detects that size
-    # at load time, so an IMGSZ mismatch won't crash (it just uses this size).
-    # To actually run at a different size, re-export with --imgsz <n>.
-    out = model.export(format=args.format, imgsz=args.imgsz, int8=args.int8,
-                       simplify=True, dynamic=False)
+    # ONNX: static shape (dynamic=False) + simplify — on CPU ~3x faster than a
+    # dynamic ONNX, and the backend auto-detects the baked size at load time.
+    # These two flags are ONNX-specific, so only pass them for ONNX (OpenVINO
+    # rejects them).
+    export_kwargs = dict(format=args.format, imgsz=args.imgsz, int8=args.int8)
+    if args.format == "onnx":
+        export_kwargs.update(simplify=True, dynamic=False)
+    out = model.export(**export_kwargs)
     # `out` may be a path string or directory (openvino). Move under models/.
+    # OpenVINO names its dir "<stem>_openvino_model" (fp32) or
+    # "<stem>_int8_openvino_model" (int8); normalize to a STABLE name so
+    # MODEL_PATH doesn't depend on the quantization flag.
     out_path = Path(out)
-    dest = MODELS / out_path.name
+    if args.format == "openvino":
+        dest = MODELS / f"{Path(args.weights).stem}_openvino_model"
+    else:
+        dest = MODELS / out_path.name
     if out_path.resolve() != dest.resolve():
         if dest.exists():
             if dest.is_dir():

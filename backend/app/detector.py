@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import cv2
@@ -72,16 +73,21 @@ class Detector:
         logger.info("Loading model: %s", model_path)
         self.model = YOLO(model_path)
         self.imgsz = imgsz
-        # A static ONNX is locked to the size it was exported at. Detect that
-        # size and use it, so a mismatched IMGSZ in config can't crash inference.
-        if str(model_path).lower().endswith(".onnx"):
+        # Static ONNX / OpenVINO models are locked to the size they were exported
+        # at. Read that size and use it, so a mismatched IMGSZ in config can never
+        # crash inference (it just uses the model's real size).
+        mp = str(model_path).lower()
+        baked = None
+        if mp.endswith(".onnx"):
             baked = self._onnx_input_size(model_path)
-            if baked:
-                if baked != imgsz:
-                    logger.warning("ONNX is built for imgsz=%d; using that "
-                                   "instead of configured %d. Re-export to "
-                                   "change.", baked, imgsz)
-                self.imgsz = baked
+        elif mp.endswith("_openvino_model") or mp.endswith("_openvino_model/"):
+            baked = self._openvino_input_size(model_path)
+        if baked:
+            if baked != imgsz:
+                logger.warning("Model is built for imgsz=%d; using that instead "
+                               "of configured %d. Re-export to change.",
+                               baked, imgsz)
+            self.imgsz = baked
         self.iou = iou
         self.max_det = max_det
         # name -> id, lowercased for forgiving matching
@@ -107,6 +113,24 @@ class Detector:
                 return int(h)
         except Exception as e:
             logger.warning("Could not read ONNX input size: %s", e)
+        return None
+
+    @staticmethod
+    def _openvino_input_size(path) -> Optional[int]:
+        """Read the square input size from an OpenVINO export's metadata.yaml
+        (Ultralytics writes imgsz there), or None if unreadable."""
+        try:
+            import yaml
+            meta = Path(path) / "metadata.yaml"
+            if meta.exists():
+                data = yaml.safe_load(meta.read_text()) or {}
+                sz = data.get("imgsz")
+                if isinstance(sz, (list, tuple)):
+                    sz = sz[0] if sz else None
+                if isinstance(sz, int) and sz > 0:
+                    return int(sz)
+        except Exception as e:
+            logger.warning("Could not read OpenVINO input size: %s", e)
         return None
 
     @property
